@@ -6,13 +6,23 @@ from openpyxl import load_workbook
 from openpyxl.workbook.defined_name import DefinedName
 import tkinter as tk
 from tkinter import filedialog
+from tkinter import messagebox
+
+def safe_print(text):
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        try:
+            print(text.encode('utf-8'))
+        except Exception:
+            pass # Игнорируем ошибки вывода, чтобы программа не падала
 
 # === НАСТРОЙКИ ===
 # --- Определение путей для .exe и обычного режима ---
 def get_base_path() -> Path:
     """Возвращает базовый путь для ресурсов, работающий и для .exe."""
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        return Path(sys.executable).parent
+        return Path(sys._MEIPASS)
     else:
         return Path(__file__).parent
 
@@ -56,10 +66,10 @@ def build_tz_map_from_xlsx(xlsx_path: Path) -> dict[str, str]:
     """
     tz_map: dict[str, str] = {}
     if not xlsx_path.exists():
-        print(f"  - [WARNING] Файл с данными не найден: {xlsx_path}")
+        safe_print(f"  - [WARNING] Файл с данными не найден: {xlsx_path}")
         return tz_map
     
-    print(f"  - [INFO] Чтение карты индексов из: {xlsx_path.name}")
+    safe_print(f"  - [INFO] Чтение карты индексов из: {xlsx_path.name}")
     try:
         wb = load_workbook(xlsx_path, data_only=True)
         for ws in wb.worksheets:
@@ -94,10 +104,10 @@ def build_tz_map_from_xlsx(xlsx_path: Path) -> dict[str, str]:
                     normalized_key = normalize_key(idx_val)
                     if normalized_key not in tz_map:
                         tz_map[normalized_key] = naziv
-        print(f"  - [INFO] Карта индексов успешно построена. Найдено {len(tz_map)} записей.")
+        safe_print(f"  - [INFO] Карта индексов успешно построена. Найдено {len(tz_map)} записей.")
         return tz_map
     except Exception as e:
-        print(f"  - [ERROR] Ошибка при чтении файла {xlsx_path}: {e}")
+        safe_print(f"  - [ERROR] Ошибка при чтении файла {xlsx_path}: {e}")
         return tz_map
 
 # --- СУЩЕСТВУЮЩИЕ ФУНКЦИИ (с изменениями) ---
@@ -147,18 +157,18 @@ def fill_extra_fields(wb, report_name: str, tz_map: dict):
 
     extra_value = "Код не найден в имени файла"
     if icode:
-        print(f"  Найден код в имени файла: {icode}")
+        safe_print(f"  Найден код в имени файла: {icode}")
         normalized_icode = normalize_key(icode)
         description = tz_map.get(normalized_icode)
         
         if description:
-            print(f"  Найдено описание в карте: \"{description}\"")
+            safe_print(f"  Найдено описание в карте: \"{description}\"")
             extra_value = description
         else:
-            print(f"  - [ПРЕДУПРЕЖДЕНИЕ] Код '{icode}' не найден в карте описаний.")
+            safe_print(f"  - [ПРЕДУПРЕЖДЕНИЕ] Код '{icode}' не найден в карте описаний.")
             extra_value = f"ОПИСАНИЕ ДЛЯ {icode} НЕ НАЙДЕНО"
     else:
-        print(f"  - [ПРЕДУПРЕЖДЕНИЕ] Код раздела не найден в имени файла: {report_name}")
+        safe_print(f"  - [ПРЕДУПРЕЖДЕНИЕ] Код раздела не найден в имени файла: {report_name}")
 
     # Вставляем найденное значение в ячейку
     dn_map = dict(wb.defined_names.items())
@@ -176,32 +186,33 @@ def make_cmm_for_report(report_path: Path, tz_map: dict):
     cmm_path = report_path.with_name(cmm_name)
 
     if cmm_path.exists():
-        print(f"[ПРОПУСК] Файл уже существует: {cmm_path.name}")
+        safe_print(f"[ПРОПУСК] Файл уже существует: {cmm_path.name}")
         return
 
-    print(f"Обработка: {report_path.name}")
+    safe_print(f"Обработка: {report_path.name}")
     try:
         wb = load_workbook(TEMPLATE_PATH)
         wb.template = False
         fill_basic_fields(wb, stem)
         fill_extra_fields(wb, stem, tz_map)
         wb.save(cmm_path)
-        print(f"[OK] Создан файл: {cmm_path.name}")
+        safe_print(f"[OK] Создан файл: {cmm_path.name}")
     except Exception as e:
-        print(f"[ОШИБКА] Не удалось обработать {report_path.name}: {e}")
+        safe_print(f"[ОШИБКА] Не удалось обработать {report_path.name}: {e}")
 
 def main():
     """Главная функция для пакетной обработки."""
     root = tk.Tk()
     root.withdraw()
 
-    print("Пожалуйста, выберите папку с файлами отчетов (.docx, .pdf)...")
+    # messagebox.showinfo("Начало работы", "Сейчас вам нужно будет выбрать папку с файлами отчетов (.docx, .pdf)...")
+    
     search_dir = filedialog.askdirectory(
         title="Выберите папку с файлами отчетов (.docx, .pdf)"
     )
 
     if not search_dir:
-        print("Папка не выбрана. Завершение работы.")
+        messagebox.showwarning("Отмена", "Папка не выбрана. Завершение работы.")
         return
         
     search_path = Path(search_dir)
@@ -209,14 +220,14 @@ def main():
     # Строим карту ОДИН РАЗ перед началом обработки
     tz_map = build_tz_map_from_xlsx(TZ_FILE_PATH)
 
-    print(f"Запуск пакетной обработки в директории: {search_path.resolve()}")
+    safe_print(f"Запуск пакетной обработки в директории: {search_path.resolve()}")
     
     docx_files = list(search_path.glob("**/*.docx"))
     pdf_files = list(search_path.glob("**/*.pdf"))
     files_to_process = docx_files + pdf_files
 
     if not files_to_process:
-        print(f"В директории '{search_path}' и ее подпапках не найдены файлы .docx или .pdf.")
+        messagebox.showinfo("Файлы не найдены", f"В директории '{search_path}' и ее подпапках не найдены файлы .docx или .pdf.")
         return
 
     processed_files = 0
@@ -225,7 +236,9 @@ def main():
             make_cmm_for_report(doc_file, tz_map)
             processed_files += 1
             
-    print(f"Обработка завершена. Всего найдено файлов (.docx, .pdf): {len(files_to_process)}. Обработано (с префиксом CT-DR-): {processed_files}.")
+    final_message = f"Обработка завершена.\nВсего найдено файлов (.docx, .pdf): {len(files_to_process)}.\nОбработано (с префиксом CT-DR-): {processed_files}."
+    safe_print(final_message.replace('\n', ' ')) # Логируем в одну строку
+    messagebox.showinfo("Готово!", final_message)
 
 if __name__ == "__main__":
     main()
